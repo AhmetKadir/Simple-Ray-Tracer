@@ -9,16 +9,24 @@ using namespace tinyxml2;
 
 void generateSceneFromXml(std::string, Scene *scene);
 
+void printData(Scene &scene);
+
 int main()
 {
 
     Scene scene = Scene();
-    scene.camera = Camera();
-
     generateSceneFromXml("scene.xml", &scene);
+    // printData(scene);
 
+    
+
+    return 0;
+}
+
+void printData(Scene &scene)
+{
     std::cout << std::endl
-              << "main function" << std::endl;
+              << "scene data" << std::endl;
 
     // print everything to see if it is working
     std::cout << "maxRayTraceDepth: " << scene.maxRayTraceDepth << std::endl;
@@ -72,22 +80,19 @@ int main()
     {
         std::cout << "mesh id: " << mesh.id << std::endl;
         std::cout << "mesh materialId: " << mesh.materialId << std::endl;
+        std::cout << "mesh faces: " << std::endl;
+        int i = 0;
         for (auto face : mesh.faces)
         {
-            for (auto vertexIndex : face)
-            {
-                std::cout << vertexIndex << " ";
-            }
-            std::cout << std::endl;
+            std::cout << "face " << i++ << ": ";
+            std::cout << face.x << " " << face.y << " " << face.z << std::endl;
         }
     }
-
-    return 0;
 }
 
 void generateSceneFromXml(std::string fileName, Scene *scene)
 {
-    std::cout << "inside generateSceneFromXml" << std::endl;
+    // std::cout << "inside generateSceneFromXml" << std::endl;
 
     XMLDocument doc;
     doc.LoadFile(fileName.c_str());
@@ -104,7 +109,6 @@ void generateSceneFromXml(std::string fileName, Scene *scene)
     if (sceneElement)
     {
         scene->maxRayTraceDepth = sceneElement->FirstChildElement("maxraytracedepth")->IntText();
-        std::cout << "maxRayTraceDepth: " << scene->maxRayTraceDepth << std::endl;
 
         auto bgElement = sceneElement->FirstChildElement("backgroundColor");
         if (bgElement)
@@ -377,8 +381,7 @@ void generateSceneFromXml(std::string fileName, Scene *scene)
         }
     }
 
-
-//     <vertexdata>
+    //     <vertexdata>
     //     -0.5 0.5 -2
     //     -0.5 -0.5 -2
     //     0.5 -0.5 -2
@@ -415,7 +418,7 @@ void generateSceneFromXml(std::string fileName, Scene *scene)
         while (meshElement)
         {
             Mesh mesh = Mesh();
-            mesh.faces = std::vector<std::vector<int>>();
+            mesh.faces = std::vector<Vector3>();
             meshElement->QueryIntAttribute("id", &mesh.id);
 
             auto materialIdElement = meshElement->FirstChildElement("materialid");
@@ -432,13 +435,15 @@ void generateSceneFromXml(std::string fileName, Scene *scene)
                 std::string line;
                 while (std::getline(iss, line))
                 {
-                    std::istringstream lineIss(line);
-                    std::vector<int> face;
-                    int vertexIndex;
-                    while (lineIss >> vertexIndex)
+                    // trim white spaces
+                    line.erase(line.find_last_not_of(" \n\r\t") + 1);
+                    if (line.empty())
                     {
-                        face.push_back(vertexIndex);
+                        continue;
                     }
+                    std::istringstream lineIss(line);
+                    Vector3 face = Vector3();
+                    lineIss >> face.x >> face.y >> face.z;
                     mesh.faces.push_back(face);
                 }
             }

@@ -62,7 +62,7 @@ class Mesh {
 public:
     int id;
     int materialId;
-    std::vector<std::vector<int>> faces;
+    std::vector<Vector3> faces;
 };
 
 class Scene {
