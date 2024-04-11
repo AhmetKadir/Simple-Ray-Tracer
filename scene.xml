@@ -9,18 +9,22 @@
         <neardistance>1</neardistance>
         <imageresolution>800 800</imageresolution>
     </camera>
-    <lights> 3 <ambientlight>25 25 25</ambientlight>
-<pointlight id="1">
+    <lights> 3 
+        <ambientlight>25 25 25</ambientlight>
+        
+        <pointlight id="1">
             <position>0 0 0 </position>
             <intensity>1000 1000 1000</intensity>
         </pointlight>
-<triangularlight id="2">
-        <vertex1> 0 0 0 </vertex1>
-<vertex2> 1.2 0.5 0.5 </vertex2>
-<vertex3> 0.5 0.5 0.5 </vertex3>
-<intensity>
-        800 800 800 </intensity>
-</triangularlight>
+
+        <triangularlight id="2">
+            <vertex1> 0 0 0 </vertex1>
+            <vertex2> 1.2 0.5 0.5 </vertex2>
+            <vertex3> 0.5 0.5 0.5 </vertex3>
+            <intensity>
+                800 800 800
+            </intensity>
+        </triangularlight>
     </lights>
     <materials>
         <material id="1">

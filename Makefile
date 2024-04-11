@@ -1,7 +1,7 @@
 CXX := g++
 CXXFLAGS := -std=c++17 -I .
 
-SRC := main.cpp tinyxml2.cpp  # Include tinyxml2.cpp here
+SRC := main.cpp tinyxml2.cpp 
 OBJ := $(SRC:.cpp=.o)
 EXE := main
 

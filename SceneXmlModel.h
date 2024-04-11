@@ -1,6 +1,14 @@
 #include <vector>
 #include <string>
 
+class NearPlane {
+public:
+    double left;
+    double right;
+    double bottom;
+    double top;
+};
+
 class Vector3 {
 public:
     double x;
@@ -8,24 +16,32 @@ public:
     double z;
 };
 
+class ImageResolution {
+public:
+    double nx;
+    double ny;
+};
+
 class Camera {
 public:
     Vector3 position;
     Vector3 gaze;
     Vector3 up;
-    double nearPlane[4]; // Assuming nearPlane has 4 values
+    NearPlane nearPlane;
     double nearDistance;
-    std::vector<int> imageResolution;
+    ImageResolution imageResolution;
 };
 
 class PointLight {
 public:
+    int id;
     Vector3 position;
     Vector3 intensity;
 };
 
 class TriangularLight {
 public:
+    int id;
     Vector3 vertex1;
     Vector3 vertex2;
     Vector3 vertex3;
@@ -56,6 +72,7 @@ public:
     Camera camera;
     std::vector<PointLight> pointLights;
     std::vector<TriangularLight> triangularLights;
+    Vector3 ambientLight;
     std::vector<Material> materials;
     std::vector<Vector3> vertexData;
     std::vector<Mesh> meshes;
