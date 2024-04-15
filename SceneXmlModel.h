@@ -1,5 +1,9 @@
+#ifndef SCENEXMLMODEL_H
+#define SCENEXMLMODEL_H
+
 #include <vector>
 #include <string>
+#include "Vector3.h"
 
 class NearPlane {
 public:
@@ -7,13 +11,6 @@ public:
     double right;
     double bottom;
     double top;
-};
-
-class Vector3 {
-public:
-    double x;
-    double y;
-    double z;
 };
 
 class ImageResolution {
@@ -30,6 +27,28 @@ public:
     NearPlane nearPlane;
     double nearDistance;
     ImageResolution imageResolution;
+
+    // top left corner of the near plane
+    Vector3 q;
+    // u and v are the basis vectors of the near plane
+    Vector3 v;
+    Vector3 u;
+    int width;
+    int height;
+
+    void cameraSetup(){
+        width = imageResolution.nx;
+        height = imageResolution.ny;
+
+        // m = e + (gaze* distance)
+        Vector3 m = position + gaze * nearDistance;
+        Vector3 w = -gaze;
+
+        // q = m + (left * u) + (top * v)
+        v = up;
+        u = cross(v, w);
+        q = m + nearPlane.left * u + nearPlane.top * v;
+    }
 };
 
 class PointLight {
@@ -68,7 +87,7 @@ public:
 class Scene {
 public:
     int maxRayTraceDepth;
-    Vector3 backgroundColor;
+    Color3 backgroundColor;
     Camera camera;
     std::vector<PointLight> pointLights;
     std::vector<TriangularLight> triangularLights;
@@ -77,3 +96,5 @@ public:
     std::vector<Vector3> vertexData;
     std::vector<Mesh> meshes;
 };
+
+#endif // SCENEXMLMODEL_H
