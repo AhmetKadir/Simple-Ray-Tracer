@@ -7,17 +7,18 @@
 #include "ppm.h"
 #include "Ray.h"
 #include <chrono>
+#include <thread>
 
 using namespace tinyxml2;
 
 typedef struct Hit
 {
-    bool hitHappened;
-    Vector3 intersectionPoint;
+    bool isHit;
     Vector3 surfaceNormal;
-    int material_id;
+    int materialId;
     float t;
-    int obj_id;
+    Vector3 pointIntersects;
+    int objectId;
 } hit;
 
 float findDistance(const Vector3 &a, const Vector3 &b)
@@ -64,7 +65,6 @@ Vector3 findIntersectionPoint(const Ray &ray, float t)
     Vector3 rayOrigin = ray.getOrigin();
     Vector3 rayDirection = ray.getDirection();
 
-    // r(t) = e + (s-e)t
     result.x = rayOrigin.x + t * rayDirection.x;
     result.y = rayOrigin.y + t * rayDirection.y;
     result.z = rayOrigin.z + t * rayDirection.z;
@@ -72,13 +72,14 @@ Vector3 findIntersectionPoint(const Ray &ray, float t)
     return result;
 }
 
-Hit triangleIntersection(const Ray &ray, const Vector3 &a, const Vector3 &b, const Vector3 &c, int material_id, int obj_id)
+Hit triangleIntersection(const Ray &ray, const Vector3 &a, const Vector3 &b, const Vector3 &c, int materialId, int objectId)
 {
     // a, b, c are vertices of the triangle
-    // calculate if it hits, using baricentric coordinates
+    // determine if the ray intersects with the triangle using baricentric coordinates
     Hit hit;
-    hit.hitHappened = false;
+    hit.isHit = false;
 
+    // edge vectors
     Vector3 e1 = b - a;
     Vector3 e2 = c - a;
 
@@ -110,12 +111,12 @@ Hit triangleIntersection(const Ray &ray, const Vector3 &a, const Vector3 &b, con
 
     if (t > 0.00001)
     {
-        hit.hitHappened = true;
+        hit.isHit = true;
         hit.t = t;
-        hit.intersectionPoint = findIntersectionPoint(ray, t);
+        hit.pointIntersects = findIntersectionPoint(ray, t);
         hit.surfaceNormal = cross(e1, e2);
-        hit.material_id = material_id;
-        hit.obj_id = obj_id;
+        hit.materialId = materialId;
+        hit.objectId = objectId;
     }
 
     return hit;
@@ -139,7 +140,7 @@ Hit intersectWithObject(const Scene &scene, const Ray &ray)
             Vector3 vertex3 = scene.vertexData[mesh.faces[j].z - 1];
 
             Hit hit = triangleIntersection(ray, vertex1, vertex2, vertex3, mesh.materialId, mesh.id);
-            if (hit.hitHappened && hit.t >= 0)
+            if (hit.isHit && hit.t >= 0)
             {
                 hitV.push_back(hit);
             }
@@ -147,7 +148,7 @@ Hit intersectWithObject(const Scene &scene, const Ray &ray)
     }
 
     Hit closestHit;
-    closestHit.hitHappened = false;
+    closestHit.isHit = false;
 
     if (hitV.size() != 0)
     {
@@ -159,7 +160,7 @@ Hit intersectWithObject(const Scene &scene, const Ray &ray)
                 closestHit = hitV[i];
             }
         }
-        closestHit.hitHappened = true;
+        closestHit.isHit = true;
     }
 
     return closestHit;
@@ -606,9 +607,9 @@ Vector3 findPixelColor(const Scene &scene, const Hit &hitResult, const Camera &c
 
     Vector3 pixelColor;
 
-    if (hitResult.hitHappened)
+    if (hitResult.isHit)
     {
-        int materialId = hitResult.material_id;
+        int materialId = hitResult.materialId;
 
         // ambient light
         // I = ka * Ia
@@ -635,18 +636,12 @@ Vector3 findPixelColor(const Scene &scene, const Hit &hitResult, const Camera &c
     return pixelColor;
 }
 
-void render(Scene *scene)
+void render(Scene *scene, int start, int end, unsigned char *image)
 {
     Camera camera = scene->camera;
     int width = camera.imageResolution.nx;
-    int height = camera.imageResolution.ny;
 
-    unsigned char *image = new unsigned char[width * height * 3];
-    int pixelNumber = 0;
-
-    std::cout << std::endl << "Rendering has started" << std::endl << std::endl;
-
-    for (int j = 0; j < height; j++)
+    for (int j = start; j < end; j++)
     {
         for (int i = 0; i < width; i++)
         {
@@ -656,15 +651,12 @@ void render(Scene *scene)
 
             Color3 pixelColor = findPixelColor(*scene, hit, camera, ray, scene->maxRayTraceDepth);
 
+            int pixelNumber = ((j * width) + i) * 3;
             image[pixelNumber] = round(pixelColor.x);
             image[pixelNumber + 1] = round(pixelColor.y);
             image[pixelNumber + 2] = round(pixelColor.z);
-
-            pixelNumber += 3;
         }
     }
-
-    write_ppm("output.ppm", image, width, height);
 }
 
 int main(int argc, char *argv[])
@@ -690,15 +682,40 @@ int main(int argc, char *argv[])
     // precalculate some values for the camera
     cameraSetup(scene.camera);
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto startTime = std::chrono::high_resolution_clock::now();
 
-    render(&scene);
+    std::cout << std::endl << "Rendering has started" << std::endl << std::endl;
 
-    auto end = std::chrono::high_resolution_clock::now();
+    int numThreads = std::thread::hardware_concurrency(); // Get the number of hardware threads
+    std::vector<std::thread> threads;
 
-    std::chrono::duration<double> elapsed = end - start;
+    int height = scene.camera.imageResolution.ny;
+    int width = scene.camera.imageResolution.nx;
+    unsigned char *image = new unsigned char[width * height * 3];
+
+    int rowsPerThread = height / numThreads;
+    int start = 0;
+    int end = rowsPerThread;
+
+    for (int t = 0; t < numThreads; ++t) {
+        threads.emplace_back(render, &scene, start, end, image);
+        start = end;
+        end = (t == numThreads - 2) ? height : std::min(end + rowsPerThread, height);
+    }
+
+    // wait for all threads to finish
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    write_ppm("output.ppm", image, width, height);
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double> elapsed = endTime - startTime;
     std::cout << std::endl << "Elapsed time: " << elapsed.count() << "s" << std::endl;
 
+    // comment out the following line to see the scene data
     // debugScene(scene);
 
     return 0;
