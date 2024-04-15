@@ -33,22 +33,6 @@ public:
     // u and v are the basis vectors of the near plane
     Vector3 v;
     Vector3 u;
-    int width;
-    int height;
-
-    void cameraSetup(){
-        width = imageResolution.nx;
-        height = imageResolution.ny;
-
-        // m = e + (gaze* distance)
-        Vector3 m = position + gaze * nearDistance;
-        Vector3 w = -gaze;
-
-        // q = m + (left * u) + (top * v)
-        v = up;
-        u = cross(v, w);
-        q = m + nearPlane.left * u + nearPlane.top * v;
-    }
 };
 
 class PointLight {

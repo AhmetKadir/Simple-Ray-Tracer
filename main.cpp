@@ -20,28 +20,31 @@ typedef struct Hit
     int obj_id;
 } hit;
 
-void generateSceneFromXml(std::string, Scene *scene);
-void printData(Scene &scene);
-void createPpmImage(Scene &scene);
-void render(Scene *scene);
-Ray calculateRay(const Camera &camera, int i, int j);
-void cameraSetup(Camera *camera);
-
 float findDistance(const Vector3 &a, const Vector3 &b)
 {
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2) + pow(a.z - b.z, 2));
 }
 
-Color3 ray_color(const Ray &r)
+void cameraSetup(Camera &camera)
 {
-    return Color3(0, 0, 0);
+    int width = camera.imageResolution.nx;
+    int height = camera.imageResolution.ny;
+
+    // m = e + (gaze* distance)
+    Vector3 m = camera.position + (camera.gaze * camera.nearDistance);
+    Vector3 w = -1 * camera.gaze;
+
+    // q = m + (left * u) + (top * v)
+    camera.v = camera.up;
+    camera.u = cross(camera.v, w);
+    camera.q = m + camera.nearPlane.left * camera.u + camera.nearPlane.top * camera.v;
 }
 
 Ray calculateRay(const Camera &camera, int i, int j)
 {
     // S = q + SuU - SvV
-    float Su = (camera.nearPlane.right - camera.nearPlane.left) * (i + 0.5) / camera.width;
-    float Sv = (camera.nearPlane.top - camera.nearPlane.bottom) * (j + 0.5) / camera.height;
+    float Su = (camera.nearPlane.right - camera.nearPlane.left) * (i + 0.5) / camera.imageResolution.nx;
+    float Sv = (camera.nearPlane.top - camera.nearPlane.bottom) * (j + 0.5) / camera.imageResolution.ny;
     Vector3 SuU = Su * camera.u;
     Vector3 SvV = Sv * camera.v;
 
@@ -49,14 +52,10 @@ Ray calculateRay(const Camera &camera, int i, int j)
 
     // r(t) = e + (s-e)t
     Vector3 direction = S - camera.position;
+    direction = direction.normalize();
 
     Ray ray = Ray(camera.position, direction);
     return ray;
-}
-
-float determinant(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2)
-{
-    return v0.x * (v1.y * v2.z - v2.y * v1.z) + v0.y * (v2.x * v1.z - v1.x * v2.z) + v0.z * (v1.x * v2.y - v1.y * v2.x);
 }
 
 Vector3 findIntersectionPoint(const Ray &ray, float t)
@@ -65,6 +64,7 @@ Vector3 findIntersectionPoint(const Ray &ray, float t)
     Vector3 rayOrigin = ray.getOrigin();
     Vector3 rayDirection = ray.getDirection();
 
+    // r(t) = e + (s-e)t
     result.x = rayOrigin.x + t * rayDirection.x;
     result.y = rayOrigin.y + t * rayDirection.y;
     result.z = rayOrigin.z + t * rayDirection.z;
@@ -74,183 +74,98 @@ Vector3 findIntersectionPoint(const Ray &ray, float t)
 
 Hit triangleIntersection(const Ray &ray, const Vector3 &a, const Vector3 &b, const Vector3 &c, int material_id, int obj_id)
 {
+    // a, b, c are vertices of the triangle
+    // calculate if it hits, using baricentric coordinates
     Hit hit;
     hit.hitHappened = false;
 
-    Vector3 o = ray.getDirection();
-    Vector3 d = ray.getOrigin();
+    Vector3 e1 = b - a;
+    Vector3 e2 = c - a;
 
-    Vector3 a_minus_b = a - b;
-    Vector3 a_minus_c = a - c;
-    Vector3 a_minus_o = a - d;
+    Vector3 h = cross(ray.getDirection(), e2);
+    float a_ = dot(e1, h);
 
-    float detA = determinant(a_minus_b, a_minus_c, d);
-    if (detA == 0.0)
+    if (a_ > -0.00001 && a_ < 0.00001)
     {
         return hit;
     }
 
-    float t = (determinant(a_minus_b, a_minus_c, a_minus_o)) / detA;
-    if (t <= 0.0)
+    float f = 1.0 / a_;
+    Vector3 s = ray.getOrigin() - a;
+    float u = f * dot(s, h);
+
+    if (u < 0.0 || u > 1.0)
+    {
+        return hit;
+    }
+    Vector3 q = cross(s, e1);
+    float v = f * dot(ray.getDirection(), q);
+
+    if (v < 0.0 || u + v > 1.0)
     {
         return hit;
     }
 
-    float gamma = (determinant(a_minus_b, a_minus_o, d)) / detA;
-    std::cout << "gamma: " << gamma << std::endl;
-    if (gamma < 0 || gamma > 1)
+    float t = f * dot(e2, q);
+
+    if (t > 0.00001)
     {
-        return hit;
-    }
-    // else {
-    //     std::cout << "gamma: " << gamma << std::endl;
-    // }
-
-    float beta = (determinant(a_minus_o, a_minus_c, d)) / detA;
-    if (beta < 0 || beta > (1 - gamma))
-    {
-        return hit;
-    }
-    else {
-        std::cout << "beta: " << beta << std::endl;
+        hit.hitHappened = true;
+        hit.t = t;
+        hit.intersectionPoint = findIntersectionPoint(ray, t);
+        hit.surfaceNormal = cross(e1, e2);
+        hit.material_id = material_id;
+        hit.obj_id = obj_id;
     }
 
-    hit.hitHappened = true;
-    hit.obj_id = obj_id;
-    hit.material_id = material_id;
-    hit.t = t;
-    hit.intersectionPoint = findIntersectionPoint(ray, t);
-    hit.surfaceNormal = cross(b - a, c - a);
-    hit.surfaceNormal = hit.surfaceNormal.normalize();
-
-    if (hit.hitHappened)
-    {
-        std::cout << "hit happened" << std::endl;
-    }
-
-    return hit;
-}
-
-Hit findHit(std::vector<Hit> &hitInfoVector)
-{
-    Hit result;
-    result.hitHappened = false;
-
-    if (hitInfoVector.size() != 0)
-    {
-        result = hitInfoVector[0];
-
-        for (int i = 1; i < hitInfoVector.size(); i++)
-        {
-            if (hitInfoVector[i].t < result.t)
-            {
-                result = hitInfoVector[i];
-            }
-        }
-        result.hitHappened = true;
-    }
-
-    return result;
-}
-
-Hit meshIntersection(const Ray &ray, const Mesh &mesh, const Scene &scene, int material_id, int obj_id)
-{
-    Hit hit;
-    hit.hitHappened = false;
-    std::vector<Hit> hitInfoVector;
-
-    /*********FOR EACH TRIANGLE(FACE) IN A MESH**********/
-    for (int faceNumber = 0; faceNumber < mesh.faces.size(); faceNumber++)
-    {
-        Vector3 v0 = scene.vertexData[mesh.faces[faceNumber].x - 1];
-        Vector3 v1 = scene.vertexData[mesh.faces[faceNumber].y - 1];
-        Vector3 v2 = scene.vertexData[mesh.faces[faceNumber].z - 1];
-
-        hit = triangleIntersection(ray, v0, v1, v2, material_id, obj_id);
-        if (hit.hitHappened && hit.t >= 0)
-        {
-            hit.material_id = material_id;
-            hit.obj_id = obj_id;
-            hit.intersectionPoint = findIntersectionPoint(ray, hit.t);
-            hit.surfaceNormal = cross(v1 - v0, v2 - v0);
-            hit.surfaceNormal = hit.surfaceNormal.normalize();
-
-            hitInfoVector.push_back(hit);
-        }
-    }
-
-    hit = findHit(hitInfoVector);
     return hit;
 }
 
 Hit intersectWithObject(const Scene &scene, const Ray &ray)
 {
-
-    Mesh currentMesh;
-    Vector3 normal, intersectionPoint;
-
+    Mesh mesh;
     int numberOfMeshes = scene.meshes.size();
 
-    std::vector<Hit> hitInfoVector;
-    for (int meshNumber = 0; meshNumber < numberOfMeshes; meshNumber++)
+    std::vector<Hit> hitV;
+    for (int i = 0; i < numberOfMeshes; i++)
     {
-        currentMesh = scene.meshes[meshNumber];
+        mesh = scene.meshes[i];
 
-        Hit hit = meshIntersection(ray, currentMesh, scene, currentMesh.materialId, meshNumber);
-
-        if (hit.hitHappened && hit.t >= 0)
+        // search every triangle
+        for (int j = 0; j < mesh.faces.size(); j++)
         {
-            hitInfoVector.push_back(hit);
+            Vector3 vertex1 = scene.vertexData[mesh.faces[j].x - 1];
+            Vector3 vertex2 = scene.vertexData[mesh.faces[j].y - 1];
+            Vector3 vertex3 = scene.vertexData[mesh.faces[j].z - 1];
+
+            Hit hit = triangleIntersection(ray, vertex1, vertex2, vertex3, mesh.materialId, mesh.id);
+            if (hit.hitHappened && hit.t >= 0)
+            {
+                hitV.push_back(hit);
+            }
         }
     }
 
-    Hit hitResult = findHit(hitInfoVector);
+    Hit closestHit;
+    closestHit.hitHappened = false;
 
-    return hitResult;
-}
-
-void createPpmImage(Scene &scene)
-{
-    // Image
-    int image_width = 256;
-    int image_height = 256;
-
-    // Render
-
-    std::cout << "P3\n"
-              << image_width << ' ' << image_height << "\n255\n";
-
-    for (int j = 0; j < image_height; j++)
+    if (hitV.size() != 0)
     {
-        for (int i = 0; i < image_width; i++)
+        closestHit = hitV[0];
+        for (int i = 1; i < hitV.size(); i++)
         {
-            auto r = double(i) / (image_width - 1);
-            auto g = double(j) / (image_height - 1);
-            auto b = 0.0;
-
-            if (i > 128)
+            if (hitV[i].t < closestHit.t)
             {
-                r = 1.0;
-                g = 0.0;
-                b = 0.5;
+                closestHit = hitV[i];
             }
-            else
-            {
-                r = 0.0;
-                g = 0.0;
-                b = 0.0;
-            }
-
-            int ir = int(255.999 * r);
-            int ig = int(255.999 * g);
-            int ib = int(255.999 * b);
-
-            std::cout << ir << ' ' << ig << ' ' << ib << '\n';
         }
+        closestHit.hitHappened = true;
     }
+
+    return closestHit;
 }
 
-void printData(Scene &scene)
+void debugScene(Scene &scene)
 {
     std::cout << std::endl
               << "scene data" << std::endl;
@@ -322,8 +237,6 @@ void printData(Scene &scene)
 
 void generateSceneFromXml(std::string fileName, Scene *scene)
 {
-    // std::cout << "inside generateSceneFromXml" << std::endl;
-
     XMLDocument doc;
     doc.LoadFile(fileName.c_str());
 
@@ -685,121 +598,39 @@ void generateSceneFromXml(std::string fileName, Scene *scene)
     }
 }
 
-Vector3 findIrradiance(const PointLight &pointLight, const Vector3 &intersectionPoint)
-{
-    Vector3 irradiance;
-    Vector3 d = pointLight.position - intersectionPoint;
-    float d_square = dot(d, d);
-
-    if (d_square != 0.0)
-    {
-        irradiance.x = pointLight.intensity.x / d_square;
-        irradiance.y = pointLight.intensity.y / d_square;
-        irradiance.z = pointLight.intensity.z / d_square;
-    }
-    return irradiance;
-}
-
-const Vector3 findDiffuse(const PointLight &currentLight, const Scene &scene, int material_id, const Vector3 &normal, const Vector3 &intersectionPoint)
-{
-    Vector3 diffuse;
-
-    Vector3 irradiance = findIrradiance(currentLight, intersectionPoint);
-
-    Vector3 l = currentLight.position - intersectionPoint;
-    l = l.normalize();
-
-    float dotPro = dot(l, normal);
-    if (dotPro < 0)
-    {
-        dotPro = 0;
-    }
-
-    diffuse.x = scene.materials[material_id - 1].diffuse.x * dotPro * irradiance.x;
-    diffuse.y = scene.materials[material_id - 1].diffuse.y * dotPro * irradiance.y;
-    diffuse.z = scene.materials[material_id - 1].diffuse.z * dotPro * irradiance.z;
-
-    return diffuse;
-}
-
-Vector3 findSpecular(const PointLight &currentLight, const Scene &scene, const Ray &ray, int material_id, const Vector3 &normal, const Vector3 &intersectionPoint)
-{
-    Vector3 specular;
-
-    Material material = scene.materials[material_id - 1];
-
-    Vector3 irradiance = findIrradiance(currentLight, intersectionPoint);
-
-    Vector3 wi = currentLight.position - intersectionPoint;
-    wi = wi.normalize();
-
-    Vector3 h = wi - ray.getDirection();
-    h = h.normalize();
-
-    float dotPro = dot(normal, h);
-    if (dotPro < 0)
-    {
-        dotPro = 0;
-    }
-
-    specular.x = material.specular.x * pow(dotPro, material.phongExponent) * irradiance.x;
-    specular.y = material.specular.y * pow(dotPro, material.phongExponent) * irradiance.y;
-    specular.z = material.specular.z * pow(dotPro, material.phongExponent) * irradiance.z;
-
-    return specular;
-}
-
 Vector3 findPixelColor(const Scene &scene, const Hit &hitResult, const Camera &currentCamera, const Ray &ray, int maxDepth)
 {
-    int numberOfLights = scene.pointLights.size();
-    int numberOfMeshes = scene.meshes.size();
-
-    float pixel1 = 0;
-    float pixel2 = 0;
-    float pixel3 = 0;
+    float pixelX = 0;
+    float pixelY = 0;
+    float pixelZ = 0;
 
     Vector3 pixelColor;
 
     if (hitResult.hitHappened)
     {
-        std::cout << "Hit happened" << std::endl;
-        int material_id = hitResult.material_id;
+        int materialId = hitResult.material_id;
 
-        pixel1 = scene.materials[material_id - 1].ambient.x * scene.ambientLight.x;
-        pixel2 = scene.materials[material_id - 1].ambient.y * scene.ambientLight.y;
-        pixel3 = scene.materials[material_id - 1].ambient.z * scene.ambientLight.z;
+        // ambient light
+        // I = ka * Ia
+        // Ia = ambient light
+        // ka = ambient coef of the material
+        pixelX = scene.materials[materialId - 1].ambient.x * scene.ambientLight.x;
+        pixelY = scene.materials[materialId - 1].ambient.y * scene.ambientLight.y;
+        pixelZ = scene.materials[materialId - 1].ambient.z * scene.ambientLight.z;
 
-        for (int lightNumber = 0; lightNumber < numberOfLights; lightNumber++)
-        {
-            PointLight currentLight = scene.pointLights[lightNumber];
-            float lightToCam = findDistance(currentLight.position, currentCamera.position);
-
-            if (lightToCam == 0)
-            {
-                int material_id = hitResult.material_id;
-
-                Vector3 diffuse = findDiffuse(currentLight, scene, material_id, hitResult.surfaceNormal, hitResult.intersectionPoint);
-
-                Vector3 specular = findSpecular(currentLight, scene, ray, material_id, hitResult.surfaceNormal, hitResult.intersectionPoint);
-
-                pixel1 += diffuse.x + specular.x;
-                pixel2 += diffuse.y + specular.y;
-                pixel3 += diffuse.z + specular.z;
-
-                std::cout << "pixel color: " << pixel1 << std::endl;
-            }
-        }
     }
-    else // if hitHappened == 0
+    
+    // if no hit
+    else 
     {
-        pixel1 = scene.backgroundColor.x;
-        pixel2 = scene.backgroundColor.y;
-        pixel3 = scene.backgroundColor.z;
+        pixelX = scene.backgroundColor.x;
+        pixelY = scene.backgroundColor.y;
+        pixelZ = scene.backgroundColor.z;
     }
 
-    pixelColor.x = pixel1;
-    pixelColor.y = pixel2;
-    pixelColor.z = pixel3;
+    pixelColor.x = pixelX;
+    pixelColor.y = pixelY;
+    pixelColor.z = pixelZ;
 
     return pixelColor;
 }
@@ -813,7 +644,7 @@ void render(Scene *scene)
     unsigned char *image = new unsigned char[width * height * 3];
     int pixelNumber = 0;
 
-    std::cout << "Rendering has started" << std::endl;
+    std::cout << std::endl << "Rendering has started" << std::endl << std::endl;
 
     for (int j = 0; j < height; j++)
     {
@@ -821,49 +652,13 @@ void render(Scene *scene)
         {
             Ray ray = calculateRay(camera, i, j);
 
-            // std::cout << "ray origin: "
-            // << ray.getOrigin().x << " "
-            // << ray.getOrigin().y << " "
-            // << ray.getOrigin().z << std::endl;
+            Hit hit = intersectWithObject(*scene, ray);
 
-            // std::cout << "ray direction: "
-            // << ray.getDirection().x << " "
-            // << ray.getDirection().y << " "
-            // << ray.getDirection().z << std::endl;
-
-            Hit hitResult = intersectWithObject(*scene, ray);
-
-            Color3 pixelColor = findPixelColor(*scene, hitResult, camera, ray, scene->maxRayTraceDepth);
-
-            // Color3 pixelColor = ray_color(ray);
+            Color3 pixelColor = findPixelColor(*scene, hit, camera, ray, scene->maxRayTraceDepth);
 
             image[pixelNumber] = round(pixelColor.x);
             image[pixelNumber + 1] = round(pixelColor.y);
             image[pixelNumber + 2] = round(pixelColor.z);
-
-            if (image[pixelNumber] > 0)
-            {
-                std::cout << "pixel color: "
-                          << image[pixelNumber] << " "
-                          << image[pixelNumber + 1] << " "
-                          << image[pixelNumber + 2] << std::endl;
-            }
-
-            if (image[pixelNumber + 1] > 0)
-            {
-                std::cout << "pixel color: "
-                          << image[pixelNumber] << " "
-                          << image[pixelNumber + 1] << " "
-                          << image[pixelNumber + 2] << std::endl;
-            }
-
-            if (image[pixelNumber + 2] > 0)
-            {
-                std::cout << "pixel color: "
-                          << image[pixelNumber] << " "
-                          << image[pixelNumber + 1] << " "
-                          << image[pixelNumber + 2] << std::endl;
-            }
 
             pixelNumber += 3;
         }
@@ -872,21 +667,39 @@ void render(Scene *scene)
     write_ppm("output.ppm", image, width, height);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     Scene scene = Scene();
-    auto fileName = "sample_scenes/bunny.xml";
+
+    if (argc < 2)
+    {
+        std::cerr << "Usage: " << argv[0] << " <xml file>" << std::endl;
+        return 1;
+    }
+
+    auto fileName = std::string(argv[1]);
+
+    if (fileName.empty())
+    {
+        std::cerr << "File name is empty" << std::endl;
+        return 1;
+    }
+
     generateSceneFromXml(fileName, &scene);
-    scene.camera.cameraSetup();
-    // calculate run time
+
+    // precalculate some values for the camera
+    cameraSetup(scene.camera);
+
     auto start = std::chrono::high_resolution_clock::now();
+
     render(&scene);
+
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Elapsed time: " << elapsed.count() << "s" << std::endl;
-    // printData(scene);
-    // createPpmImage(scene);
+    std::cout << std::endl << "Elapsed time: " << elapsed.count() << "s" << std::endl;
+
+    // debugScene(scene);
 
     return 0;
 }
